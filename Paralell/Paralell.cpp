@@ -6,9 +6,12 @@
 #include <math.h>
 #include <filesystem>
 #include <algorithm>
+#include <execution>
 
 using namespace cv;
 using namespace std;
+using namespace chrono;
+
 
 //structure for storing images
 struct Images {
@@ -181,6 +184,8 @@ int main(int argc, char** argv)
     vector<Mat> test_imgs;
     string test_img_path;
 
+    auto start = steady_clock::now();
+
     cout << "Input test directory: " << endl;
     cin >> test_img_path;
 
@@ -225,7 +230,9 @@ int main(int argc, char** argv)
         distance.clear();
     }
 
-    //t_print(distance); 
+    auto end = steady_clock::now();
+    auto duration_s = duration_cast<microseconds> (end - start).count();
+    cout << "Parallel time: " << duration_s << endl;
 
     return 0;
 }
