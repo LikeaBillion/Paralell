@@ -5,12 +5,15 @@
 #include <filesystem>
 #include <math.h>
 #include <filesystem>
-
+#include <mutex>
+#include <shared_mutex>
 
 
 using namespace cv;
 using namespace std;
 using namespace chrono;
+mutex mu;
+condition_variable cond;
 
 //structure for storing images- test, training and the distences
 struct Images {
@@ -60,13 +63,19 @@ void convert_to_grayscale(unsigned char* input, unsigned char* output, int start
 }
 
 //function to calcualte the euclidian distance between the images
-double calculate_distance(unsigned char* testimg, unsigned char* trainimg, int start, int end) {
-    double total = 0;
-    for (int i = start; i < end; i++) {
-        total = +pow((testimg[i] - trainimg[i]), 2);
+void calculate_distance(unsigned char* testimg, unsigned char* trainimg, int start, int end, double& total, int depth) {
+    Images img;
+    if (depth > 2) {
+
+        for (int i = start; i < end; i++) {
+            total = +pow((testimg[i] - trainimg[i]), 2);
+        }
     }
-    double dis = sqrt(total);
-    return dis;
+    else {
+        auto mid = ((start + end) / 2);
+        auto left = async(launch::async, calculate_distance, testimg, trainimg, start, mid, ref(total), depth + 1);
+        calculate_distance(testimg, trainimg, mid, end, ref(total), depth + 1);
+    }
 }
 
 //function to calculate the knn of the images- simply counts them and then prints the most common
@@ -157,6 +166,28 @@ void find_subfolders(string dir, vector<string>& subfolders) {
 
 }
 
+void read_images(vector<string> &sub_folders, vector<string> &filenames, vector<Images> &train_image_data,int start, int end, int depth) {
+    Images train_img;
+    if (depth > 2) {
+        for (int i = 0; i < sub_folders.size(); i++) {
+            scoped_lock<mutex> sl(mu);
+            glob(sub_folders[i], filenames);
+            for (int j = start; j < end; j++) {
+                train_img.train_img = (imread(filenames[j]));
+                train_img.label = calculate_label(filenames[j]);
+                train_image_data.push_back(train_img);
+            }
+        }
+    }
+    else {
+        auto mid = ((start + end) / 2);
+        auto left = async(launch::async, read_images, ref(sub_folders), ref(filenames), ref(train_image_data), start, mid, depth + 1);
+        read_images(ref(sub_folders), ref(filenames), ref(train_image_data), mid, end, depth + 1);
+        
+    }
+    
+}
+
 
 
 
@@ -195,17 +226,9 @@ int main(int argc, char** argv)
     cin >> test_img_path;
 
     //function calls to find all the subfolders
-    Images train_img;
     find_subfolders(dir, ref(sub_folders));
     //iterates through all the subfolders adding to the image vector with all the training data and their labels
-    for (int i = 0; i < sub_folders.size(); i++) {
-        glob(sub_folders[i], filenames);
-        for (int j = 0; j < filenames.size(); j++) {
-            train_img.train_img = (imread(filenames[j]));
-            train_img.label = calculate_label(filenames[j]);
-            train_image_data.push_back(train_img);
-        }
-    }
+    read_images(ref(sub_folders),ref(filenames),ref(train_image_data),0,sub_folders.size(),0);
 
     //interates through all the test_imgs add puts them into the image vector. Along with the test_name to be used later
     Images test_img;
@@ -235,11 +258,11 @@ int main(int argc, char** argv)
         convert_to_grayscale(test_input, test_output, 0, total_number_of_pixels, test_image.channels());
 
 
-
         for (int j = 0; j < train_size; j++) {
 
             //storing the current training image as variable for easy access
             auto train_img = train_image_data[j].train_img;
+            double total = 0;
 
             //allocating memory for the train_input and train_outputs
             unsigned char* train_input = (unsigned char*)train_img.data;
@@ -249,7 +272,8 @@ int main(int argc, char** argv)
 
 
             //calculating the distance, then storing with: test_name and labels
-            distance_img.distance = calculate_distance(test_output, train_output, 0, (total_number_of_pixels / 3));
+            calculate_distance(test_output, train_output, 0, (total_number_of_pixels / 3), ref(total), 0);
+            distance_img.distance = total;
             distance_img.label = train_image_data[j].label;
             distance_img.test_name = test_image_data[i].test_name;
             distance_data.push_back(distance_img);
