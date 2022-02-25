@@ -47,19 +47,28 @@ ostream& operator<<(ostream& out, const Images& r) {
 }
 
 //serial implemntation of grayscaling
-void convert_to_grayscale(unsigned char* input, unsigned char* output, int start, int end,
-    int channel) {
-    //j is need to insure the output is ordered right.
-    int j = start;
-    int number_of_pixel = end;
+void convert_to_grayscale(unsigned char* input, unsigned char* output, int start, int end, int channel, int depth) {
+    if (depth > 2) {
+        int j = start;
+        int number_of_pixel = end;
 
-    for (int i = start; i < number_of_pixel; i += channel) {
-        int blue_value = input[i];
-        int green_value = input[i + 1];
-        int red_value = input[i + 2];
-        //shifts the pixels and then moves them into the output
-        output[j++] = (int)(0.114 * blue_value + 0.587 * green_value + 0.299 * red_value);
+        for (int i = start; i < number_of_pixel; i += channel) {
+            int blue_value = input[i];
+            int green_value = input[i + 1];
+            int red_value = input[i + 2];
+
+            int out_index = i / channel;
+
+            output[out_index] = (int)(0.114 * blue_value + 0.587 * green_value + 0.299 * red_value);
+        }
     }
+
+    else {
+        auto mid = ((start + end) / 2);
+        auto left = async(launch::async, convert_to_grayscale, input, output, start, mid, channel, depth + 1);
+        convert_to_grayscale(input, output, mid, end, channel, depth + 1);
+    }
+
 }
 
 //function to calcualte the euclidian distance between the images
@@ -166,29 +175,26 @@ void find_subfolders(string dir, vector<string>& subfolders) {
 
 }
 
-void read_images(vector<string> &sub_folders, vector<string> &filenames, vector<Images> &train_image_data,int start, int end, int depth) {
+void read_images(vector<string>& sub_folders, vector<string>& filenames, vector<Images>& train_image_data, int start, int end, int depth) {
     Images train_img;
+
     if (depth > 2) {
-        for (int i = 0; i < sub_folders.size(); i++) {
-            scoped_lock<mutex> sl(mu);
-            glob(sub_folders[i], filenames);
-            for (int j = start; j < end; j++) {
-                train_img.train_img = (imread(filenames[j]));
-                train_img.label = calculate_label(filenames[j]);
-                train_image_data.push_back(train_img);
-            }
+        scoped_lock<mutex> sl(mu);
+        for (int j = start; j < end; j++) {
+            train_img.train_img = (imread(filenames[j]));
+            train_img.label = calculate_label(filenames[j]);
+            train_image_data.push_back(train_img);
         }
+        
     }
     else {
         auto mid = ((start + end) / 2);
         auto left = async(launch::async, read_images, ref(sub_folders), ref(filenames), ref(train_image_data), start, mid, depth + 1);
         read_images(ref(sub_folders), ref(filenames), ref(train_image_data), mid, end, depth + 1);
-        
+
     }
-    
+
 }
-
-
 
 
 int main(int argc, char** argv)
@@ -228,7 +234,15 @@ int main(int argc, char** argv)
     //function calls to find all the subfolders
     find_subfolders(dir, ref(sub_folders));
     //iterates through all the subfolders adding to the image vector with all the training data and their labels
-    read_images(ref(sub_folders),ref(filenames),ref(train_image_data),0,sub_folders.size(),0);
+    
+    
+    for (int i = 0; i < sub_folders.size(); i++) {
+        
+        glob(sub_folders[i], filenames);
+        read_images(ref(sub_folders), ref(filenames), ref(train_image_data), 0, filenames.size(), 0);
+        
+    }
+
 
     //interates through all the test_imgs add puts them into the image vector. Along with the test_name to be used later
     Images test_img;
@@ -255,7 +269,7 @@ int main(int argc, char** argv)
         //count for the max number of pixels
         const int total_number_of_pixels = test_image.rows * test_image.cols * test_image.channels();
         const int train_size = train_image_data.size();
-        convert_to_grayscale(test_input, test_output, 0, total_number_of_pixels, test_image.channels());
+        convert_to_grayscale(test_input, test_output, 0, total_number_of_pixels, test_image.channels(),0);
 
 
         for (int j = 0; j < train_size; j++) {
@@ -268,12 +282,12 @@ int main(int argc, char** argv)
             unsigned char* train_input = (unsigned char*)train_img.data;
             unsigned char* train_output = new unsigned char[train_img.size().width * train_img.size().height];
 
-            convert_to_grayscale(train_input, train_output, 0, total_number_of_pixels, train_img.channels());
+            convert_to_grayscale(train_input, train_output, 0, total_number_of_pixels, train_img.channels(),0);
 
 
             //calculating the distance, then storing with: test_name and labels
             calculate_distance(test_output, train_output, 0, (total_number_of_pixels / 3), ref(total), 0);
-            distance_img.distance = total;
+            distance_img.distance = sqrt(total);
             distance_img.label = train_image_data[j].label;
             distance_img.test_name = test_image_data[i].test_name;
             distance_data.push_back(distance_img);
@@ -283,7 +297,7 @@ int main(int argc, char** argv)
 
         //function to simply sort the values in the image vector strcuture
         sort(distance_data.begin(), distance_data.end(), [](Images a, Images b) {return a.distance < b.distance; });
-        //t_print(distance);
+        //t_print(distance_data);
         //call to calculate knn using the sorted values
         calculate_knn(ref(distance_data), stoi(k_value));
         //cleared vector to keep processing time down and to remove potenial bias
