@@ -13,7 +13,8 @@ using namespace cv;
 using namespace std;
 using namespace chrono;
 mutex mu;
-condition_variable cond;
+mutex mu2;
+
 
 //structure for storing images- test, training and the distences
 struct Images {
@@ -48,7 +49,7 @@ ostream& operator<<(ostream& out, const Images& r) {
 
 //serial implemntation of grayscaling
 void convert_to_grayscale(unsigned char* input, unsigned char* output, int start, int end, int channel, int depth) {
-    if (depth > 2) {
+    if (depth > 4) {
         int j = start;
         int number_of_pixel = end;
 
@@ -74,7 +75,7 @@ void convert_to_grayscale(unsigned char* input, unsigned char* output, int start
 //function to calcualte the euclidian distance between the images
 void calculate_distance(unsigned char* testimg, unsigned char* trainimg, int start, int end, double& total, int depth) {
     Images img;
-    if (depth > 2) {
+    if (depth > 4) {
 
         for (int i = start; i < end; i++) {
             total = +pow((testimg[i] - trainimg[i]), 2);
@@ -178,7 +179,7 @@ void find_subfolders(string dir, vector<string>& subfolders) {
 void read_images(vector<string>& sub_folders, vector<string>& filenames, vector<Images>& train_image_data, int start, int end, int depth) {
     Images train_img;
 
-    if (depth > 2) {
+    if (depth > 4) {
         scoped_lock<mutex> sl(mu);
         for (int j = start; j < end; j++) {
             train_img.train_img = (imread(filenames[j]));
@@ -292,7 +293,7 @@ int main(int argc, char** argv)
             distance_img.test_name = test_image_data[i].test_name;
             distance_data.push_back(distance_img);
 
-
+            delete[] train_output;
         }
 
         //function to simply sort the values in the image vector strcuture
@@ -302,15 +303,16 @@ int main(int argc, char** argv)
         calculate_knn(ref(distance_data), stoi(k_value));
         //cleared vector to keep processing time down and to remove potenial bias
         distance_data.clear();
+        delete[] test_output;
     }
 
     //ending timing
     auto end = steady_clock::now();
     //calculating duration
-    auto duration_p = duration_cast<seconds> (end - start).count();
+    double duration_p = duration_cast<milliseconds> (end - start).count();
     cout << "----------------------------------------------------------" << endl;
     //outputing parallel time
-    cout << "Parallel time: " << duration_p << endl;
+    cout << "Parallel time: " << duration_p/1000 << endl;
 
     return 0;
 }
