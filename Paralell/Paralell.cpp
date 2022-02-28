@@ -88,10 +88,11 @@ void find_subfolders(string dir, vector<string>& subfolders) {
 
 }
 
+//function to read images parallely
 void read_images(vector<string>& sub_folders, vector<string>& filenames, vector<Images>& train_image_data, int start, int end, int depth) {
     Images train_img;
 
-    if (depth > 4) {
+    if (depth > 3) {
         scoped_lock<mutex> sl(mu);
         for (int j = start; j < end; j++) {
             train_img.train_img = (imread(filenames[j]));
@@ -149,6 +150,7 @@ int main(int argc, char** argv)
     //iterates through all the subfolders adding to the image vector with all the training data and their labels
     
     
+    //for loop running through for each of the subfolders the program needs to read
     for (int i = 0; i < sub_folders.size(); i++) {
         
         glob(sub_folders[i], filenames);
@@ -165,7 +167,6 @@ int main(int argc, char** argv)
         test_img.test_name = calculate_filename(test_img_filenames[i]);
         test_image_data.push_back(test_img);
     }
-
 
 
     //new image vector for distances, this is used so the vector can be cleared after interations to insure that 1 images distances don't bleed into other images data

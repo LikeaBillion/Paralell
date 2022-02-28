@@ -49,7 +49,7 @@ ostream& operator<<(ostream& out, const Images& r) {
 
 //serial implemntation of grayscaling
 void convert_to_grayscale(unsigned char* input, unsigned char* output, int start, int end, int channel, int depth) {
-    if (depth > 4) {
+    if (depth > 3) {
         int j = start;
         int number_of_pixel = end;
 
@@ -75,7 +75,7 @@ void convert_to_grayscale(unsigned char* input, unsigned char* output, int start
 //function to calcualte the euclidian distance between the images
 void calculate_distance(unsigned char* testimg, unsigned char* trainimg, int start, int end, double& total, int depth) {
     Images img;
-    if (depth > 4) {
+    if (depth > 3) {
 
         for (int i = start; i < end; i++) {
             total = +pow((testimg[i] - trainimg[i]), 2);
