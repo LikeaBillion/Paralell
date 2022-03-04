@@ -1,9 +1,15 @@
 
 #include "Header.h"
 #include <mutex>
+#include <condition_variable>
+#include <queue>
+
 
 //mutex to avoid thread conflicts
 mutex mu;
+condition_variable cond;
+queue<Images> buffer;
+
 
 //serial implemntation of grayscaling
 void convert_to_grayscale(unsigned char* input, unsigned char* output, int start, int end,
@@ -159,13 +165,31 @@ void calculate_knn_list(string** distance, int kvalue) {
 
 }
 
-//function for reading the images- is called for each subfolder
-void read_images(vector<string>& filenames, vector<Images>& train_image_data) {
+//function to read images parallely
+void read_images(vector<string>& filenames, vector<Images>& train_image_data, int start, int end, int depth) {
     Images train_img;
-    for (int j = 0; j < filenames.size(); j++) {
-        train_img.train_img = (imread(filenames[j]));
-        train_img.label = calculate_label(filenames[j]);
-        train_image_data.push_back(train_img);
+
+    if (depth > 3) {
+        Mat train;
+        string label;
+        for (int j = start; j < end; j++) {
+            train = imread(filenames[j]);
+            label = calculate_label(filenames[j]);
+            unique_lock<mutex> lock(mu);
+            train_img.train_img = train;
+            train_img.label = label;
+            Images train_b(train_img);
+            buffer.push(train_b);
+            cond.notify_all();
+
+        }
+
+    }
+    else {
+        auto mid = ((start + end) / 2);
+        auto left = async(launch::async, read_images, ref(filenames), ref(train_image_data), start, mid, depth + 1);
+        read_images(ref(filenames), ref(train_image_data), mid, end, depth + 1);
+
     }
 
 }
@@ -299,8 +323,16 @@ void parallel_main(string dir, string k_value){
     //iterates through all the subfolders adding to the image vector with all the training data and their labels
     for (int i = 0; i < sub_folders.size(); i++) {
         glob(sub_folders[i], filenames);
-        read_images(ref(filenames),ref(train_image_data));
+        read_images(ref(filenames), (train_image_data), 0, filenames.size(), 0);
         //read_images_list(ref(filenames), ref(list_train_image_data), ref(list_labels));
+    }
+
+    while (!buffer.empty()) {
+        auto bf = buffer.front();
+        train_img.train_img = bf.train_img;
+        train_img.label = bf.label;
+        train_image_data.push_back(train_img);
+        buffer.pop();
     }
 
     //interates through all the test_imgs add puts them into the image vector. Along with the test_name to be used later

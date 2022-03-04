@@ -28,6 +28,13 @@ struct Images {
 
 };
 
+int counter = 0;
+ostream& operator<<(ostream& out, const Images& i) {
+    out << "{ counter: " << counter << " label: " << i.label << " training image: " << " }" << endl;
+    counter++;
+    return out;
+}
+
 string calculate_label(string& dir) {
     string directory;
     size_t last_slash_idx = dir.rfind('\\');
