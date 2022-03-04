@@ -171,7 +171,7 @@ void calculate_knn_list(string** distance, int kvalue) {
 void read_images(vector<string>& filenames, vector<Images>& train_image_data, int start, int end, int depth) {
     Images train_img;
 
-    if (depth > 3) {
+    if (depth > 4) {
         Mat train;
         string label;
         for (int j = start; j < end; j++) {
@@ -198,7 +198,7 @@ void read_images(vector<string>& filenames, vector<Images>& train_image_data, in
 
 //function for reading the images in a the list implementation- is called for each subfolder
 void read_images_list(vector<string>& filenames, list<Mat>& list_train_image_data, list<string>& list_labels,int start, int end, int depth) {
-    if (depth > 3) {
+    if (depth > 2) {
         Mat train;
         string label;
         for (int j = start; j < end; j++) {
@@ -226,7 +226,7 @@ void distance_handler(vector<Images>& test_image_data, vector<Images>& train_ima
     Images distance_img;
     //interates through the test data and then the train data for that- calculates distance then the knn before clearing the vector
 
-    if (depth > 3) {
+    if (depth > 4) {
         for (int j = start; j < end; j++) {
             double total = 0;
             //storing the current training image as variable for easy access
@@ -265,7 +265,7 @@ void distance_handler(vector<Images>& test_image_data, vector<Images>& train_ima
 
 //function that pulls together the distance and greyscaling together in one function for the list implementation- and runs through for each of the training images
 void distance_handler_list(list<Mat>& list_train_image_data, list<string> &list_labels, string** distance, int test_number, unsigned char* test_output, int start, int end, int depth) {
-    if (depth > 3) {
+    if (depth > 4) {
         for (int j = start; j < end; j++) {
             //pulling current image from the list
             auto lt = list_train_image_data.begin();
@@ -288,7 +288,7 @@ void distance_handler_list(list<Mat>& list_train_image_data, list<string> &list_
             string total = to_string(calculate_distance(test_output, train_output, 0, (total_number_of_pixels / 3)));
  
             //added scoped_lock to ensure resource is available as soon as possible
-            
+            scoped_lock<mutex> lock(mu);
             //adding to the calculate distance array- for distance
 
             distance[0][j] = total;
@@ -339,20 +339,20 @@ void parallel_main(string dir, string k_value){
     //iterates through all the subfolders adding to the image vector with all the training data and their labels
     for (int i = 0; i < sub_folders.size(); i++) {
         glob(sub_folders[i], filenames);
-        //read_images(ref(filenames), (train_image_data), 0, filenames.size(), 0);
-        read_images_list(ref(filenames), ref(list_train_image_data), ref(list_labels),0,filenames.size(),0);
+        read_images(ref(filenames), (train_image_data), 0, filenames.size(), 0);
+        //read_images_list(ref(filenames), ref(list_train_image_data), ref(list_labels),0,filenames.size(),0);
     }
 
-    /*while (!buffer.empty()) {
+    while (!buffer.empty()) {
         auto bf = buffer.front();
         train_img.train_img = bf.train_img;
         train_img.label = bf.label;
         train_image_data.push_back(train_img);
         buffer.pop();
-    }*/
+    }
 
 
-    while (!labelbf.empty() || !trainbf.empty()) {
+  /*  while (!labelbf.empty() || !trainbf.empty()) {
         auto tbf = trainbf.front();
         auto lbf = labelbf.front();
         list_train_image_data.push_back(tbf);
@@ -360,7 +360,7 @@ void parallel_main(string dir, string k_value){
         trainbf.pop();
         labelbf.pop();
     }
-    
+    */
    
     //interates through all the test_imgs add puts them into the image vector. Along with the test_name to be used later
     Images test_img;
@@ -374,10 +374,10 @@ void parallel_main(string dir, string k_value){
     for (int i = 0; i < test_image_data.size(); i++) {
         //storing the current testing image as variable for easy access
         
-        string** distance = new string * [2];
+        /*string** distance = new string * [2];
         for (int i = 0; i < 2; ++i) {
             distance[i] = new string[list_train_image_data.size()];
-        }
+        }*/
 
         auto test_image = test_image_data[i].test_img;
 
@@ -390,23 +390,23 @@ void parallel_main(string dir, string k_value){
         //converting test images to greyscale
         convert_to_grayscale(test_input, test_output, 0, total_number_of_pixels, test_image.channels());
 
-        //distance_handler(ref(test_image_data), ref(train_image_data), ref(distance_data), i, test_output, 0, train_image_data.size(), 0);
-        distance_handler_list(ref(list_train_image_data), ref(list_labels), ref(distance), i, test_output,0,list_train_image_data.size(),0);
+        distance_handler(ref(test_image_data), ref(train_image_data), ref(distance_data), i, test_output, 0, train_image_data.size(), 0);
+        //distance_handler_list(ref(list_train_image_data), ref(list_labels), ref(distance), i, test_output,0,list_train_image_data.size(),0);
 
         
 
         //function to simply sort the values in the image vector structure
-        //sort(distance_data.begin(), distance_data.end(), [](Images a, Images b) {return a.distance < b.distance; });
-        bubble_sort_distance(distance,list_train_image_data.size());
+        sort(distance_data.begin(), distance_data.end(), [](Images a, Images b) {return a.distance < b.distance; });
+        //bubble_sort_distance(distance,list_train_image_data.size());
         
 
         //call to calculate knn using the sorted values
-        //calculate_knn(ref(distance_data), stoi(k_value));
-        calculate_knn_list(distance, stoi(k_value));
+        calculate_knn(ref(distance_data), stoi(k_value));
+        //calculate_knn_list(distance, stoi(k_value));
 
         //cleared vector to keep processing time down and to remove potenial bias. Deleting distace (in the array implementation) and testoutput to avoid memory leaks 
         distance_data.clear();
-        delete[] distance;
+        //delete[] distance;
         delete[] test_output;
     }
 
