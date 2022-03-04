@@ -1,3 +1,4 @@
+#pragma once
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <string>
@@ -5,16 +6,12 @@
 #include <filesystem>
 #include <math.h>
 #include <filesystem>
-#include <mutex>
-#include <shared_mutex>
+
 
 
 using namespace cv;
 using namespace std;
 using namespace chrono;
-mutex mu;
-mutex mu2;
-
 
 //structure for storing images- test, training and the distences
 struct Images {
@@ -31,59 +28,37 @@ struct Images {
 
 };
 
-//simple template for printing vectors
-template <typename T>
-void t_print(vector<T>& v) {
-    if (v.empty()) return;
-    for (T& i : v) cout << i << endl;
+string calculate_label(string& dir) {
+    string directory;
+    size_t last_slash_idx = dir.rfind('\\');
+    size_t end = dir.size();
+    if (std::string::npos != last_slash_idx)
+    {
+        directory = dir.substr(0, last_slash_idx);
+        size_t second_last_slash = directory.rfind('\\');
+        directory = directory.substr(second_last_slash + 1, end);
+    }
+    return directory;
+}
+//function to extract the filename from the path fo the test images
+string calculate_filename(string& dir) {
+    string name;
+    size_t last_slash_idx = dir.rfind('\\');
+    size_t end = dir.size();
+    if (std::string::npos != last_slash_idx)
+    {
+        name = dir.substr(last_slash_idx + 1, end);
+
+    }
+    return name;
 }
 
-//overloaded the<< operator for type image
-//also added a counter int that just outputs the count of the element printing out- useful for debugging
-int counter = 0;
-ostream& operator<<(ostream& out, const Images& r) {
-    counter++;
-    out << "{ counter: " << counter << " label: " << r.label << " file name: " << r.test_name << " distence: " << r.distance << " }" << endl;
-    return out;
-}
-
-//serial implemntation of grayscaling
-void convert_to_grayscale(unsigned char* input, unsigned char* output, int start, int end, int channel, int depth) {
-    if (depth > 3) {
-        int j = start;
-        int number_of_pixel = end;
-
-        for (int i = start; i < number_of_pixel; i += channel) {
-            int blue_value = input[i];
-            int green_value = input[i + 1];
-            int red_value = input[i + 2];
-
-            int out_index = i / channel;
-
-            output[out_index] = (int)(0.114 * blue_value + 0.587 * green_value + 0.299 * red_value);
-        }
+//function to work out the subfolders from the path provideded by the command line 
+void find_subfolders(string dir, vector<string>& subfolders) {
+    int label_counter = 0;
+    for (const auto& entry : filesystem::directory_iterator(dir)) {
+        string path_string{ entry.path().u8string() };
+        subfolders.push_back(path_string);
     }
 
-    else {
-        auto mid = ((start + end) / 2);
-        auto left = async(launch::async, convert_to_grayscale, input, output, start, mid, channel, depth + 1);
-        convert_to_grayscale(input, output, mid, end, channel, depth + 1);
-    }
-
-}
-
-//function to calcualte the euclidian distance between the images
-void calculate_distance(unsigned char* testimg, unsigned char* trainimg, int start, int end, double& total, int depth) {
-    Images img;
-    if (depth > 3) {
-
-        for (int i = start; i < end; i++) {
-            total = +pow((testimg[i] - trainimg[i]), 2);
-        }
-    }
-    else {
-        auto mid = ((start + end) / 2);
-        auto left = async(launch::async, calculate_distance, testimg, trainimg, start, mid, ref(total), depth + 1);
-        calculate_distance(testimg, trainimg, mid, end, ref(total), depth + 1);
-    }
 }
