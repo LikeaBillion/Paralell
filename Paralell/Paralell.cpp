@@ -9,6 +9,8 @@
 mutex mu;
 condition_variable cond;
 queue<Images> buffer;
+queue<Mat> trainbf;
+queue<string> labelbf;
 
 
 //serial implemntation of grayscaling
@@ -195,11 +197,26 @@ void read_images(vector<string>& filenames, vector<Images>& train_image_data, in
 }
 
 //function for reading the images in a the list implementation- is called for each subfolder
-void read_images_list(vector<string>& filenames, list<Mat>& list_train_image_data, list<string>& list_labels) {
-    Images train_img;
-    for (int j = 0; j < filenames.size(); j++) {
-        list_train_image_data.push_back(imread(filenames[j]));
-        list_labels.push_back(calculate_label(filenames[j]));
+void read_images_list(vector<string>& filenames, list<Mat>& list_train_image_data, list<string>& list_labels,int start, int end, int depth) {
+    if (depth > 3) {
+        Mat train;
+        string label;
+        for (int j = start; j < end; j++) {
+            train = imread(filenames[j]);
+            label = calculate_label(filenames[j]);
+            unique_lock<mutex> lock(mu);
+            trainbf.push(train);
+            labelbf.push(label);
+            cond.notify_all();
+
+        }
+
+    }
+    else {
+        auto mid = ((start + end) / 2);
+        auto left = async(launch::async, read_images_list, ref(filenames), ref(list_train_image_data),(ref(list_labels)), start, mid, depth + 1);
+        read_images_list(ref(filenames), ref(list_train_image_data), (ref(list_labels)), mid, end, depth + 1);
+
     }
 }
 
@@ -211,7 +228,7 @@ void distance_handler(vector<Images>& test_image_data, vector<Images>& train_ima
 
     if (depth > 3) {
         for (int j = start; j < end; j++) {
-            double distance = 0;
+            double total = 0;
             //storing the current training image as variable for easy access
             auto train_img = train_image_data[j].train_img;
 
@@ -225,10 +242,10 @@ void distance_handler(vector<Images>& test_image_data, vector<Images>& train_ima
 
 
             //calculating the distance, then storing with: test_name and labels
-            distance = calculate_distance(test_output, train_output, 0, (total_number_of_pixels / 3));
+            total = calculate_distance(test_output, train_output, 0, (total_number_of_pixels / 3));
             //scoped_lock used to ensure that as soon as a thread leaves scope the resource is available
             scoped_lock<mutex> lock(mu);
-            distance_img.distance = distance;
+            distance_img.distance = total;
             distance_img.label = train_image_data[j].label;
             distance_img.test_name = test_image_data[test_number].test_name;
             //pushing to image vector of distance
@@ -247,17 +264,16 @@ void distance_handler(vector<Images>& test_image_data, vector<Images>& train_ima
 }
 
 //function that pulls together the distance and greyscaling together in one function for the list implementation- and runs through for each of the training images
-void distance_handler_list(list<Mat>& list_train_image_data, list<string> list_labels, string** distance, int test_number, unsigned char* test_output, int start, int end, int depth) {
+void distance_handler_list(list<Mat>& list_train_image_data, list<string> &list_labels, string** distance, int test_number, unsigned char* test_output, int start, int end, int depth) {
     if (depth > 3) {
         for (int j = start; j < end; j++) {
             //pulling current image from the list
             auto lt = list_train_image_data.begin();
             std::advance(lt, j);
             //storing the current training image as variable for easy access
-
+            
             Mat train_img = *lt;
 
-            string total = "";
 
             //allocating memory for the train_input and train_outputs
             unsigned char* train_input = (unsigned char*)train_img.data;
@@ -269,12 +285,12 @@ void distance_handler_list(list<Mat>& list_train_image_data, list<string> list_l
             //pulling from list labels
             auto ll = list_labels.begin();
             std::advance(ll, j);
-
-            total = to_string(calculate_distance(test_output, train_output, 0, (total_number_of_pixels / 3)));
-
+            string total = to_string(calculate_distance(test_output, train_output, 0, (total_number_of_pixels / 3)));
+ 
             //added scoped_lock to ensure resource is available as soon as possible
-            scoped_lock<mutex> lock(mu);
+            
             //adding to the calculate distance array- for distance
+
             distance[0][j] = total;
             //adding to the calculate distance array- for labels
             distance[1][j] = *ll;
@@ -286,8 +302,8 @@ void distance_handler_list(list<Mat>& list_train_image_data, list<string> list_l
     else {
         //mid used for divide and conquor also
         auto mid = ((start + end) / 2);
-        auto left = async(launch::async, distance_handler_list, ref(list_train_image_data), ref(list_labels), distance, test_number, test_output, start, mid, depth + 1);
-        distance_handler_list(ref(list_train_image_data), ref(list_labels), distance, test_number, test_output, mid, end, depth + 1);
+        auto left = async(launch::async, distance_handler_list, ref(list_train_image_data), ref(list_labels), ref(distance), test_number, test_output, start, mid, depth + 1);
+        distance_handler_list(ref(list_train_image_data), ref(list_labels), ref(distance), test_number, test_output, mid, end, depth + 1);
     }
 }
 
@@ -323,18 +339,29 @@ void parallel_main(string dir, string k_value){
     //iterates through all the subfolders adding to the image vector with all the training data and their labels
     for (int i = 0; i < sub_folders.size(); i++) {
         glob(sub_folders[i], filenames);
-        read_images(ref(filenames), (train_image_data), 0, filenames.size(), 0);
-        //read_images_list(ref(filenames), ref(list_train_image_data), ref(list_labels));
+        //read_images(ref(filenames), (train_image_data), 0, filenames.size(), 0);
+        read_images_list(ref(filenames), ref(list_train_image_data), ref(list_labels),0,filenames.size(),0);
     }
 
-    while (!buffer.empty()) {
+    /*while (!buffer.empty()) {
         auto bf = buffer.front();
         train_img.train_img = bf.train_img;
         train_img.label = bf.label;
         train_image_data.push_back(train_img);
         buffer.pop();
-    }
+    }*/
 
+
+    while (!labelbf.empty() || !trainbf.empty()) {
+        auto tbf = trainbf.front();
+        auto lbf = labelbf.front();
+        list_train_image_data.push_back(tbf);
+        list_labels.push_back(lbf);
+        trainbf.pop();
+        labelbf.pop();
+    }
+    
+   
     //interates through all the test_imgs add puts them into the image vector. Along with the test_name to be used later
     Images test_img;
     glob(test_img_path, test_img_filenames);
@@ -346,11 +373,11 @@ void parallel_main(string dir, string k_value){
 
     for (int i = 0; i < test_image_data.size(); i++) {
         //storing the current testing image as variable for easy access
-
-        /*string** distance = new string * [2];
+        
+        string** distance = new string * [2];
         for (int i = 0; i < 2; ++i) {
             distance[i] = new string[list_train_image_data.size()];
-        }*/
+        }
 
         auto test_image = test_image_data[i].test_img;
 
@@ -359,25 +386,27 @@ void parallel_main(string dir, string k_value){
         unsigned char* test_output = new unsigned char[test_image.size().width * test_image.size().height];
         const int total_number_of_pixels = test_image.rows * test_image.cols * test_image.channels();
 
+
         //converting test images to greyscale
         convert_to_grayscale(test_input, test_output, 0, total_number_of_pixels, test_image.channels());
 
-        distance_handler(ref(test_image_data), ref(train_image_data), ref(distance_data), i, test_output, 0, train_image_data.size(), 0);
-        //distance_handler_list(ref(list_train_image_data), ref(list_labels), distance, i, test_output,0,list_train_image_data.size(),0);
+        //distance_handler(ref(test_image_data), ref(train_image_data), ref(distance_data), i, test_output, 0, train_image_data.size(), 0);
+        distance_handler_list(ref(list_train_image_data), ref(list_labels), ref(distance), i, test_output,0,list_train_image_data.size(),0);
 
+        
 
         //function to simply sort the values in the image vector structure
-        sort(distance_data.begin(), distance_data.end(), [](Images a, Images b) {return a.distance < b.distance; });
-        //bubble_sort_distance(distance,list_train_image_data.size());
+        //sort(distance_data.begin(), distance_data.end(), [](Images a, Images b) {return a.distance < b.distance; });
+        bubble_sort_distance(distance,list_train_image_data.size());
         
 
         //call to calculate knn using the sorted values
-        calculate_knn(ref(distance_data), stoi(k_value));
-        //calculate_knn_list(distance, stoi(k_value));
+        //calculate_knn(ref(distance_data), stoi(k_value));
+        calculate_knn_list(distance, stoi(k_value));
 
         //cleared vector to keep processing time down and to remove potenial bias. Deleting distace (in the array implementation) and testoutput to avoid memory leaks 
         distance_data.clear();
-        //delete[] distance;
+        delete[] distance;
         delete[] test_output;
     }
 
